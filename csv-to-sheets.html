@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CSV → Google スプレッドシート転記ツール</title>
+  <style>
+    :root {
+      --primary: #4285f4;
+      --success: #34a853;
+      --error:   #ea4335;
+      --bg:      #f8f9fa;
+      --card:    #ffffff;
+      --border:  #dadce0;
+      --text:    #202124;
+      --sub:     #5f6368;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    header h1 { font-size: 18px; font-weight: 500; }
+
+    /* ── Layout ── */
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* ── Card ── */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 24px;
+    }
+    .card-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--sub);
+      text-transform: uppercase;
+      letter-spacing: .6px;
+      margin-bottom: 16px;
+    }
+
+    /* ── Settings grid ── */
+    .settings-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 640px) { .settings-grid { grid-template-columns: 1fr; } }
+
+    .field { display: flex; flex-direction: column; gap: 5px; }
+    .field label { font-size: 13px; font-weight: 500; }
+    .field input, .field select {
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 8px 10px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color .15s;
+      width: 100%;
+    }
+    .field input:focus, .field select:focus { border-color: var(--primary); }
+    .hint { font-size: 11px; color: var(--sub); }
+    .req { color: var(--error); }
+
+    /* ── Auth row ── */
+    .auth-row { display: flex; align-items: center; gap: 12px; margin-top: 20px; flex-wrap: wrap; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .badge.unauth { background: #fce8e6; color: #c5221f; }
+    .badge.auth   { background: #e6f4ea; color: #137333; }
+
+    /* ── Setup guide ── */
+    .guide {
+      background: #e8f0fe;
+      border: 1px solid #c5d9f7;
+      border-radius: 6px;
+      padding: 14px 16px;
+      font-size: 13px;
+      line-height: 1.7;
+      color: #1a56a8;
+    }
+    .guide summary { cursor: pointer; font-weight: 500; }
+    .guide ol { margin: 8px 0 0 18px; }
+
+    /* ── Drop zone ── */
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 8px;
+      padding: 36px;
+      text-align: center;
+      cursor: pointer;
+      transition: all .15s;
+      user-select: none;
+    }
+    .drop-zone:hover, .drop-zone.over {
+      border-color: var(--primary);
+      background: #f0f4ff;
+    }
+    .drop-icon { font-size: 40px; margin-bottom: 10px; }
+    .drop-zone p { color: var(--sub); font-size: 14px; }
+    .drop-zone strong { color: var(--primary); }
+
+    /* ── Encoding row ── */
+    .enc-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    .enc-row label { font-size: 13px; font-weight: 500; }
+
+    /* ── File info ── */
+    .file-info {
+      display: none;
+      margin-top: 12px;
+      background: #e8f0fe;
+      border-radius: 4px;
+      padding: 8px 12px;
+      font-size: 13px;
+      color: #1967d2;
+    }
+
+    /* ── Preview ── */
+    .preview-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .spacer { flex: 1; }
+    .stats { font-size: 12px; color: var(--sub); }
+
+    .table-wrap {
+      overflow: auto;
+      max-height: 420px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead { position: sticky; top: 0; background: #f1f3f4; z-index: 1; }
+    th, td {
+      padding: 7px 12px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      white-space: nowrap;
+    }
+    th { font-weight: 500; color: var(--sub); }
+    tbody tr:hover td { background: #f8f9fa; }
+    .row-num { color: #bbb; font-size: 11px; user-select: none; }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 9px 18px;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity .15s, background .15s;
+      white-space: nowrap;
+    }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .btn-outline { background: #fff; border: 1px solid var(--border); color: var(--text); }
+    .btn-outline:hover:not(:disabled) { background: #f5f5f5; }
+    .btn-green { background: var(--success); color: #fff; }
+    .btn-green:hover:not(:disabled) { background: #2d9248; }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      padding: 11px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      opacity: 0;
+      transition: opacity .25s;
+      z-index: 9999;
+      max-width: 380px;
+      pointer-events: none;
+    }
+    #toast.show { opacity: 1; }
+    #toast.success { background: #e6f4ea; color: #137333; border: 1px solid #34a853; }
+    #toast.error   { background: #fce8e6; color: #c5221f; border: 1px solid #ea4335; }
+    #toast.info    { background: #e8f0fe; color: #1967d2; border: 1px solid #4285f4; }
+  </style>
+</head>
+<body>
+
+<header>
+  <svg width="22" height="22" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" fill="#34a853"/><path d="M7 8h10M7 12h10M7 16h6" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>
+  <h1>CSV → Google スプレッドシート転記ツール</h1>
+</header>
+
+<div class="container">
+
+  <!-- Setup Guide -->
+  <details class="guide">
+    <summary>⚙️ 初回セットアップ手順（クリックで展開）</summary>
+    <ol>
+      <li><a href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</a> でプロジェクトを作成し、<strong>Google Sheets API</strong> を有効化する</li>
+      <li>「認証情報」→「OAuth 2.0 クライアント ID」を作成（アプリの種類: <strong>ウェブアプリケーション</strong>）</li>
+      <li>「承認済みの JavaScript 生成元」に <strong>このHTMLを開いているオリジン</strong>（例: <code>http://localhost:5500</code> や <code>file://</code>）を追加</li>
+      <li>作成した <strong>クライアント ID</strong> を下の設定欄に貼り付ける</li>
+      <li>転記先スプレッドシートのURLから <strong>スプレッドシート ID</strong> をコピーする<br>
+        例: <code>https://docs.google.com/spreadsheets/d/<strong>[ここがID]</strong>/edit</code></li>
+    </ol>
+  </details>
+
+  <!-- Settings -->
+  <div class="card">
+    <div class="card-title">設定</div>
+    <div class="settings-grid">
+      <div class="field">
+        <label>OAuth クライアント ID <span class="req">*</span></label>
+        <input type="text" id="clientId" placeholder="xxxx.apps.googleusercontent.com">
+        <span class="hint">Google Cloud Console の「認証情報」から取得</span>
+      </div>
+      <div class="field">
+        <label>API キー（省略可）</label>
+        <input type="text" id="apiKey" placeholder="AIzaSy...">
+        <span class="hint">OAuth トークンがあれば不要。割り当て管理用に任意で設定</span>
+      </div>
+      <div class="field">
+        <label>スプレッドシート ID <span class="req">*</span></label>
+        <input type="text" id="spreadsheetId" placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms">
+        <span class="hint">スプレッドシート URL の /d/〜/edit 間の文字列</span>
+      </div>
+      <div class="field">
+        <label>書き込み範囲</label>
+        <input type="text" id="range" value="Sheet1!A1" placeholder="Sheet1!A1">
+        <span class="hint">シート名!開始セル（例: シート1!B2）</span>
+      </div>
+    </div>
+    <div class="auth-row">
+      <button class="btn btn-outline" id="authBtn" onclick="authenticate()">
+        <svg width="16" height="16" viewBox="0 0 18 18">
+          <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908C16.657 12.814 17.64 11.2 17.64 9.2z" fill="#4285F4"/>
+          <path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" fill="#34A853"/>
+          <path d="M3.964 10.707A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.707V4.961H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.039l3.007-2.332z" fill="#FBBC05"/>
+          <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.961L3.964 6.293C4.672 4.166 6.656 3.58 9 3.58z" fill="#EA4335"/>
+        </svg>
+        Google アカウントで認証
+      </button>
+      <span class="badge unauth" id="authBadge">未認証</span>
+    </div>
+  </div>
+
+  <!-- CSV Upload -->
+  <div class="card">
+    <div class="card-title">CSV ファイル</div>
+    <div class="enc-row">
+      <label>文字コード:</label>
+      <select id="encoding">
+        <option value="UTF-8">UTF-8</option>
+        <option value="Shift_JIS">Shift-JIS</option>
+        <option value="EUC-JP">EUC-JP</option>
+      </select>
+    </div>
+    <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+      <div class="drop-icon">📂</div>
+      <p><strong>クリック</strong>、またはファイルをここにドロップ</p>
+      <p style="font-size:12px;margin-top:4px;">.csv ファイルのみ対応</p>
+    </div>
+    <input type="file" id="fileInput" accept=".csv" style="display:none" onchange="handleFileSelect(event)">
+    <div class="file-info" id="fileInfo"></div>
+  </div>
+
+  <!-- Preview + Transfer -->
+  <div class="card" id="previewCard" style="display:none">
+    <div class="preview-header">
+      <div>
+        <div class="card-title" style="margin-bottom:2px">プレビュー</div>
+        <span class="stats" id="stats"></span>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn btn-green" id="writeBtn" onclick="writeToSheets()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>
+        </svg>
+        スプレッドシートに転記
+      </button>
+    </div>
+    <div class="table-wrap">
+      <table id="previewTable"></table>
+    </div>
+  </div>
+
+</div>
+
+<div id="toast"></div>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+'use strict';
+
+let csvData    = [];
+let accessToken = null;
+let tokenClient = null;
+
+/* ─── Google OAuth ─── */
+function authenticate() {
+  const clientId = document.getElementById('clientId').value.trim();
+  if (!clientId) { toast('OAuth クライアント ID を入力してください', 'error'); return; }
+
+  if (typeof google === 'undefined' || !google.accounts?.oauth2) {
+    toast('Google Identity Services を読み込み中です。しばらくお待ちください。', 'info');
+    return;
+  }
+
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: clientId,
+    scope: 'https://www.googleapis.com/auth/spreadsheets',
+    callback(res) {
+      if (res.error) {
+        toast('認証エラー: ' + (res.error_description || res.error), 'error');
+        return;
+      }
+      accessToken = res.access_token;
+      document.getElementById('authBadge').textContent = '認証済み ✓';
+      document.getElementById('authBadge').className = 'badge auth';
+      document.getElementById('authBtn').textContent = '再認証';
+      toast('Google アカウントの認証が完了しました', 'success');
+    }
+  });
+
+  tokenClient.requestAccessToken();
+}
+
+/* ─── CSV Parser ─── */
+function parseCSV(text) {
+  const rows = [];
+  let row = [], field = '', inQ = false, i = 0;
+
+  while (i < text.length) {
+    const c = text[i], n = text[i + 1];
+    if (inQ) {
+      if (c === '"' && n === '"') { field += '"'; i += 2; continue; }
+      else if (c === '"') inQ = false;
+      else field += c;
+    } else {
+      if      (c === '"')                          inQ = true;
+      else if (c === ',')                          { row.push(field); field = ''; }
+      else if (c === '\r' && n === '\n')           { row.push(field); field = ''; rows.push(row); row = []; i += 2; continue; }
+      else if (c === '\n' || c === '\r')           { row.push(field); field = ''; rows.push(row); row = []; }
+      else                                          field += c;
+    }
+    i++;
+  }
+  if (row.length || field !== '') { row.push(field); rows.push(row); }
+  while (rows.length && rows[rows.length - 1].every(f => f === '')) rows.pop();
+  return rows;
+}
+
+/* ─── File handling ─── */
+function handleFileSelect(e) {
+  const f = e.target.files[0];
+  if (f) loadFile(f);
+  e.target.value = '';
+}
+
+function loadFile(file) {
+  if (!file.name.toLowerCase().endsWith('.csv')) {
+    toast('.csv ファイルのみ対応しています', 'error');
+    return;
+  }
+  const enc = document.getElementById('encoding').value;
+  const reader = new FileReader();
+  reader.onload = e => {
+    csvData = parseCSV(e.target.result);
+    const info = document.getElementById('fileInfo');
+    info.style.display = 'block';
+    info.textContent = `📄 ${file.name}  (${fmtBytes(file.size)})`;
+    renderTable();
+    toast(`${csvData.length} 行を読み込みました`, 'success');
+  };
+  reader.readAsText(file, enc);
+}
+
+/* ─── Table rendering ─── */
+function renderTable() {
+  if (!csvData.length) return;
+  const tbl = document.getElementById('previewTable');
+  tbl.innerHTML = '';
+
+  const maxCols = Math.max(...csvData.map(r => r.length));
+
+  // thead
+  const thead = tbl.createTHead();
+  const hr = thead.insertRow();
+  addCell(hr, 'th').textContent = '#';
+  csvData[0].forEach((h, i) => { addCell(hr, 'th').textContent = h || `列${i + 1}`; });
+
+  // tbody
+  const tbody = tbl.createTBody();
+  csvData.slice(1).forEach((row, ri) => {
+    const tr = tbody.insertRow();
+    const num = tr.insertCell();
+    num.textContent = ri + 1;
+    num.className = 'row-num';
+    for (let c = 0; c < maxCols; c++) {
+      tr.insertCell().textContent = row[c] ?? '';
+    }
+  });
+
+  document.getElementById('previewCard').style.display = 'block';
+  document.getElementById('stats').textContent =
+    `${csvData.length} 行 × ${maxCols} 列（1 行目をヘッダーとして転記）`;
+}
+
+function addCell(row, tag) {
+  const el = document.createElement(tag);
+  row.appendChild(el);
+  return el;
+}
+
+/* ─── Write to Sheets ─── */
+async function writeToSheets() {
+  if (!accessToken) { toast('先に Google アカウントで認証してください', 'error'); return; }
+  if (!csvData.length) { toast('CSV ファイルを読み込んでください', 'error'); return; }
+
+  const sheetId = document.getElementById('spreadsheetId').value.trim();
+  if (!sheetId) { toast('スプレッドシート ID を入力してください', 'error'); return; }
+
+  const range  = document.getElementById('range').value.trim() || 'Sheet1!A1';
+  const apiKey = document.getElementById('apiKey').value.trim();
+
+  const btn = document.getElementById('writeBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ 転記中...';
+
+  try {
+    let url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(range)}?valueInputOption=RAW`;
+    if (apiKey) url += `&key=${encodeURIComponent(apiKey)}`;
+
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ values: csvData })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      const msg = err.error?.message || `HTTP ${res.status}`;
+      if (res.status === 401) {
+        accessToken = null;
+        document.getElementById('authBadge').textContent = '未認証';
+        document.getElementById('authBadge').className = 'badge unauth';
+        throw new Error('認証トークンが期限切れです。再認証してください');
+      }
+      throw new Error(msg);
+    }
+
+    const data = await res.json();
+    toast(`✅ 転記完了！ ${data.updatedCells} セルを更新しました`, 'success');
+
+  } catch (e) {
+    toast('エラー: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>
+    </svg> スプレッドシートに転記`;
+  }
+}
+
+/* ─── Drag & Drop ─── */
+const dz = document.getElementById('dropZone');
+dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('over'); });
+dz.addEventListener('dragleave', ()  => dz.classList.remove('over'));
+dz.addEventListener('drop', e => {
+  e.preventDefault();
+  dz.classList.remove('over');
+  const f = e.dataTransfer.files[0];
+  if (f) loadFile(f);
+});
+
+/* ─── Toast ─── */
+let _toastTimer;
+function toast(msg, type = 'info') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `show ${type}`;
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.remove('show'), 3500);
+}
+
+function fmtBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+  return (b / 1048576).toFixed(1) + ' MB';
+}
+</script>
+</body>
+</html>
